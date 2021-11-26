@@ -9,91 +9,98 @@
 #ifndef LotSizingSolver_hpp
 #define LotSizingSolver_hpp
 
+#include <list>
 #include <vector>
 
 /// Default: Linear cost edge
 struct Edge {
-    std::size_t from, to;
-    int capacity;
-    int flow;
-    int cost;
+    uint32_t capacity;
+    uint32_t flow;
+    double cost;
 };
 
 // TODO: Convex cost edge
 
+using ProductionEdges = std::vector<Edge>;
+
+using InventoryEdges = ProductionEdges;
+
+using Demands = std::vector<uint32_t>;
+
+// MARK: - Internal data structure used in the solver
+
 using ResidualEdge = Edge;
 
-using productionEdges = std::vector<Edge>;
+using ResidualEdges = std::vector<ResidualEdge>;
 
-using forwardEdges = std::vector<Edge>;
+/// Data for a residual path used in the O(n^2) algorithm.
+struct ResidualPath {
+    /// Starting node of the residual path.
+    std::size_t from;
 
-using backwardEdges = std::vector<Edge>;
-
-using residualEdges = std::vector<ResidualEdge>;
+    /// Residual cost of the residual path.
+    double cost;
+};
 
 class ForwardGraph {
 public:
-    /// n: Number of demand nodes. Demand nodes are 1-indexed. The production node is always node 0. Thus the total number of nodes is n+1.
-    ForwardGraph(std::size_t n, const std::vector<int>& productionCapacities, const std::vector<int>& productionCosts,
-                 const std::vector<int>& forwardCapacities, const std::vector<int>& forwardCosts) {
-        assert(n >= 1);
-        assert(productionCapacities.size() == productionCosts.size());
-        assert(n == productionCapacities.size());
-        assert(forwardCapacities.size() == forwardCosts.size());
-        assert(forwardCapacities.size() + 1 == n);
+    /// n: Number of demand nodes. Demand nodes are 0-indexed. The production node is node n. Thus the total number of nodes is n+1.
+    ForwardGraph(std::size_t n, const Demands& demands,
+                 const std::vector<uint32_t>& productionCapacities,
+                 const std::vector<double>& productionCosts,
+                 const std::vector<uint32_t>& forwardCapacities,
+                 const std::vector<double>& forwardCosts);
 
-        // Production edges
-        m_productionEdges.resize(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            Edge& edge = m_productionEdges[i];
-            edge.from = 0;
-            edge.to = i + 1;
-            edge.capacity = productionCapacities[i];
-            edge.flow = 0;
-            edge.cost = productionCosts[i];
-        }
+    /// Evaluate the total objective cost of the current solution at call time (may not be optimal).
+    double cost() const;
 
-        // Inventory forward edges
-        m_forwardEdges.resize(n - 1);
-        for (std::size_t i = 0; i < n - 1; ++i) {
-            Edge& edge = m_forwardEdges[i];
-            edge.from = i + 1;
-            edge.to = i + 2;
-            edge.capacity = forwardCapacities[i];
-            edge.flow = 0;
-            edge.cost = forwardCosts[i];
-        }
-    }
+    /// Solve the optimal solution to the problem instance.
+    void solve();
+
+    bool constraintsSatisfied() const;
+
+    bool isOptimal() const;
 
 protected:
-    productionEdges m_productionEdges;
-    forwardEdges m_forwardEdges;
+    std::size_t m_n;
+    Demands m_demands;
+    ProductionEdges m_productionEdges;
+    InventoryEdges m_forwardEdges;
+
+    // Forward residual edges
+    ResidualEdges m_productionResidualEdges;
+    ResidualEdges m_forwardResidualEdges;
+
+    // Shared functions
+    void orderedInsert(const ResidualPath& residualPath, std::list<ResidualPath>& residualPaths);
+
+private:
+    void elongateAndAdd(std::size_t node, std::list<ResidualPath>& residualPaths);
+
+    void augmentAndUpdate(std::size_t node, std::list<ResidualPath>& residualPaths, uint32_t& demand);
 };
 
 class ForwardBackwardGraph: ForwardGraph {
 public:
-    ForwardBackwardGraph(std::size_t n, const std::vector<int>& productionCapacities, const std::vector<int>& productionCosts,
-                         const std::vector<int>& forwardCapacities, const std::vector<int>& forwardCosts,
-                         const std::vector<int>& backwardCapacities, const std::vector<int>& backwardCosts)
-    : ForwardGraph(n, productionCapacities, productionCosts, forwardCapacities, forwardCosts)
-    {
-        assert(backwardCapacities.size() == backwardCosts.size());
-        assert(backwardCapacities.size() == forwardCapacities.size());
+    ForwardBackwardGraph(std::size_t n, const Demands& demands,
+                         const std::vector<uint32_t>& productionCapacities,
+                         const std::vector<double>& productionCosts,
+                         const std::vector<uint32_t>& forwardCapacities,
+                         const std::vector<double>& forwardCosts,
+                         const std::vector<uint32_t>& backwardCapacities,
+                         const std::vector<double>& backwardCosts);
 
-        // Inventory backward edges
-        m_backwardEdges.resize(n - 1);
-        for (std::size_t i = 0; i < n - 1; ++i) {
-            Edge& edge = m_backwardEdges[i];
-            edge.from = i + 2;
-            edge.to = i + 1;
-            edge.capacity = backwardCapacities[i];
-            edge.flow = 0;
-            edge.cost = backwardCosts[i];
-        }
-    }
+    /// Evaluate the total objective cost of the current solution at call time (may not be optimal).
+    double cost() const;
+
+    /// Solve the optimal solution to the problem instance.
+    void solve();
 
 private:
-    backwardEdges m_backwardEdges;
+    InventoryEdges m_backwardEdges;
+
+    // Backward residual edges
+    ResidualEdges m_backwardResidualEdges;
 };
 
 #endif /* LotSizingSolver_hpp */
