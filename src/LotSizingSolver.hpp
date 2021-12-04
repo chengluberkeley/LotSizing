@@ -42,6 +42,12 @@ struct ResidualPath {
     double cost;
 };
 
+// (start, end), both are inclusive.
+using SegmentRange = std::pair<std::size_t, std::size_t>;
+
+// (Non-zero capacitated backward residual paths ordered in costs, range of the residual paths)
+using BackwardResidualPathSegment = std::pair<std::list<ResidualPath>, SegmentRange>;
+
 class ForwardGraph {
 public:
     /// n: Number of demand nodes. Demand nodes are 0-indexed. The production node is node n. Thus the total number of nodes is n+1.
@@ -54,11 +60,14 @@ public:
     /// Evaluate the total objective cost of the current solution at call time (may not be optimal).
     double cost() const;
 
+    // TODO: Add infeasibility return.
     /// Solve the optimal solution to the problem instance.
     void solve();
 
+    /// Check whether the current solution satisfies all constraints.
     bool constraintsSatisfied() const;
 
+    /// Check whether the current solution is optimal.
     bool isOptimal() const;
 
 protected:
@@ -67,7 +76,7 @@ protected:
     ProductionEdges m_productionEdges;
     InventoryEdges m_forwardEdges;
 
-    // Forward residual edges
+    // Production and forward residual edges
     ResidualEdges m_productionResidualEdges;
     ResidualEdges m_forwardResidualEdges;
 
@@ -96,11 +105,27 @@ public:
     /// Solve the optimal solution to the problem instance.
     void solve();
 
+    /// Check whether the current solution satisfies all constraints.
+    bool constraintsSatisfied() const;
+
+    /// Check whether the current solution is optimal.
+    bool isOptimal() const;
+
 private:
     InventoryEdges m_backwardEdges;
 
     // Backward residual edges
     ResidualEdges m_backwardResidualEdges;
+
+    // Auxiliary data structure
+    std::vector<double> m_backwardResidualEdgeCostSums;
+
+    void elongateAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
+                           std::list<BackwardResidualPathSegment>& backwardResidualPathSegments);
+
+    void augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
+                          std::list<BackwardResidualPathSegment>& backwardResidualPathSegments,
+                          uint32_t& demand);
 };
 
 #endif /* LotSizingSolver_hpp */
