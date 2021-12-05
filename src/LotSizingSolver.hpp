@@ -9,6 +9,8 @@
 #ifndef LotSizingSolver_hpp
 #define LotSizingSolver_hpp
 
+// #define DEBUG_LOTSIZING
+
 #include <list>
 #include <vector>
 
@@ -83,6 +85,12 @@ protected:
     // Shared functions
     void orderedInsert(const ResidualPath& residualPath, std::list<ResidualPath>& residualPaths);
 
+#ifdef DEBUG_LOTSIZING
+    void print() const;
+
+    void printResiduals() const;
+#endif
+
 private:
     void elongateAndAdd(std::size_t node, std::list<ResidualPath>& residualPaths);
 
@@ -126,6 +134,15 @@ private:
     void augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
                           std::list<BackwardResidualPathSegment>& backwardResidualPathSegments,
                           uint32_t& demand);
+
+#ifdef DEBUG_LOTSIZING
+    void print() const;
+
+    void print(const std::list<ResidualPath>& forwardResidualPaths,
+               const std::list<BackwardResidualPathSegment>& backwardResidualPathSegments) const;
+
+    void printResiduals() const;
+#endif
 };
 
 #endif /* LotSizingSolver_hpp */
