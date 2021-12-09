@@ -1,7 +1,7 @@
 # Efficient Algorithms for Dynamic Lot-Sizing Problems
 
 This repo implements efficient algorithms to solve the dynamic lot-sizing problem. Dynamic lot-sizing problem is a production planning problem where one needs to decide the production and inventory controls to meet the demands over a period time. For a period of $n$ days, this problem can be graphically illustrated as follows:
-<img src="LotSizingProb.PNG" alt="Lot Sizing Problem" width="500"/>
+![LotSizingProb](LotSizingProb.jpg)
 
 Each arc has a cost $cost$ and a capacity $cap$ properties, where $cost$ is used to compute the cost along a production/inventory-forward/inventory-backward arc, and $cap$ limits the amounts of production/inventory on the respective arcs.
 
