@@ -98,16 +98,20 @@ double ForwardGraph::cost() const {
     return cost;
 }
 
-void ForwardGraph::solve() {
+bool ForwardGraph::solve() {
     std::list<ResidualPath> residualPaths;
 
     for (std::size_t i = 0; i < m_n; ++i) {
         elongateAndAdd(i, residualPaths);
         uint32_t demand = m_demands[i];
         while (demand > 0) {
-            augmentAndUpdate(i, residualPaths, demand);
+            if (!augmentAndUpdate(i, residualPaths, demand)) {
+                return false;
+            }
         }
     }
+
+    return true;
 }
 
 bool ForwardGraph::constraintsSatisfied() const {
@@ -288,8 +292,12 @@ void ForwardGraph::elongateAndAdd(std::size_t node, std::list<ResidualPath>& res
     }
 }
 
-void ForwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& residualPaths, uint32_t& demand) {
+bool ForwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& residualPaths, uint32_t& demand) {
     assert(demand > 0);
+
+    if (residualPaths.empty()) {
+        return false;
+    }
 
     // Get the minimum cost residual path.
     const auto& residualPath = residualPaths.front();
@@ -308,11 +316,14 @@ void ForwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& r
     demand -= delta;
 
     // Update flows and residual edges.
-    // TODO: Re-visit to save unnecessary computation.
+    bool productionSaturated = false;
     std::size_t lastZeroResCapNode = m_n;
     assert(m_productionResidualEdges[residualPath.from].capacity >= delta);
     m_productionResidualEdges[residualPath.from].capacity -= delta;
     m_productionEdges[residualPath.from].flow += delta;
+    if (m_productionResidualEdges[residualPath.from].capacity == 0) {
+        productionSaturated = true;
+    }
     for (std::size_t i = residualPath.from; i < node; ++i) {
         assert(m_forwardResidualEdges[i].capacity >= delta);
         m_forwardResidualEdges[i].capacity -= delta;
@@ -324,10 +335,12 @@ void ForwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& r
     }
 
     // Update the residual paths.
-    residualPaths.pop_front();
+    if (productionSaturated) {
+        residualPaths.pop_front();
+    }
 
     if (residualPath.from == node) {
-        return;
+        return true;
     }
 
     if (lastZeroResCapNode < m_n) {
@@ -335,6 +348,8 @@ void ForwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& r
             return residualPath.from != node && residualPath.from <= lastZeroResCapNode;
         });
     }
+
+    return true;
 }
 
 // MARK: - ForwardBackwardGraph functions
@@ -388,7 +403,7 @@ double ForwardBackwardGraph::cost() const {
     return cost;
 }
 
-void ForwardBackwardGraph::solve() {
+bool ForwardBackwardGraph::solve() {
     std::list<ResidualPath> forwardResidualPaths;
     std::list<BackwardResidualPathSegment> backwardResidualPathSegments;
 
@@ -444,7 +459,9 @@ void ForwardBackwardGraph::solve() {
         std::cout << "Start to push for Node " << i << ":\n";
 #endif
         while (demand > 0) {
-            augmentAndUpdate(i, forwardResidualPaths, backwardResidualPathSegments, demand);
+            if (!augmentAndUpdate(i, forwardResidualPaths, backwardResidualPathSegments, demand)) {
+                return false;
+            }
 #ifdef DEBUG_LOTSIZING
             print(forwardResidualPaths, backwardResidualPathSegments);
             std::cout << "Push down demand to " << demand << std::endl;
@@ -469,6 +486,8 @@ void ForwardBackwardGraph::solve() {
     std::cout << "Residual edges:\n";
     printResiduals();
 #endif
+
+    return true;
 }
 
 bool ForwardBackwardGraph::constraintsSatisfied() const {
@@ -698,11 +717,14 @@ void ForwardBackwardGraph::elongateAndUpdate(std::size_t node, std::list<Residua
     }
 }
 
-void ForwardBackwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
+bool ForwardBackwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
                                             std::list<BackwardResidualPathSegment>& backwardResidualPathSegments,
                                             uint32_t& demand) {
-    // TODO: If both are empty, it indicates non-feasibility.
-    assert(!forwardResidualPaths.empty() || !backwardResidualPathSegments.empty());
+    assert(demand > 0);
+
+    if (forwardResidualPaths.empty() && backwardResidualPathSegments.empty()) {
+        return false;
+    }
 
     ResidualPath residualPath;
 
@@ -799,7 +821,7 @@ void ForwardBackwardGraph::augmentAndUpdate(std::size_t node, std::list<Residual
         }
 
         if (residualPath.from == node) {
-            return;
+            return true;
         }
 
         if (lastZeroResCapNode < m_n) {
@@ -869,12 +891,12 @@ void ForwardBackwardGraph::augmentAndUpdate(std::size_t node, std::list<Residual
             backwardResidualPathSegment.first.pop_front();
             if (backwardResidualPathSegment.first.empty()) {
                 backwardResidualPathSegments.pop_front();
-                return;
+                return true;
             }
         }
 
         if (zeroBackwardResidualEdges.empty()) {
-            return;
+            return true;
         }
 
         // Split the first `backwardResidualPathSegment`.
@@ -926,6 +948,8 @@ void ForwardBackwardGraph::augmentAndUpdate(std::size_t node, std::list<Residual
                                                 newBackwardResidualPathSegments.end());
         }
     }
+
+    return true;
 }
 
 #ifdef DEBUG_LOTSIZING

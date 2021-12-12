@@ -62,9 +62,9 @@ public:
     /// Evaluate the total objective cost of the current solution at call time (may not be optimal).
     double cost() const;
 
-    // TODO: Add infeasibility return.
     /// Solve the optimal solution to the problem instance.
-    void solve();
+    /// \return true if the problem is feasible.
+    bool solve();
 
     /// Check whether the current solution satisfies all constraints.
     bool constraintsSatisfied() const;
@@ -94,7 +94,8 @@ protected:
 private:
     void elongateAndAdd(std::size_t node, std::list<ResidualPath>& residualPaths);
 
-    void augmentAndUpdate(std::size_t node, std::list<ResidualPath>& residualPaths, uint32_t& demand);
+    // Return true if the augmentation is successful.
+    bool augmentAndUpdate(std::size_t node, std::list<ResidualPath>& residualPaths, uint32_t& demand);
 };
 
 class ForwardBackwardGraph: ForwardGraph {
@@ -111,7 +112,8 @@ public:
     double cost() const;
 
     /// Solve the optimal solution to the problem instance.
-    void solve();
+    /// \return true if the problem is feasible.
+    bool solve();
 
     /// Check whether the current solution satisfies all constraints.
     bool constraintsSatisfied() const;
@@ -131,7 +133,8 @@ private:
     void elongateAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
                            std::list<BackwardResidualPathSegment>& backwardResidualPathSegments);
 
-    void augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
+    // Return true if the augmentation is successful.
+    bool augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
                           std::list<BackwardResidualPathSegment>& backwardResidualPathSegments,
                           uint32_t& demand);
 

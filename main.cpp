@@ -56,7 +56,7 @@ int main(int argc, const char * argv[]) {
         ForwardGraph forwardGraph(n, demands, productionCapacities, productionCosts, forwardCapacities, forwardCosts);
 
         auto start = std::chrono::steady_clock::now();
-        forwardGraph.solve();
+        assert(forwardGraph.solve());
         auto end = std::chrono::steady_clock::now();
         auto elapsedSeconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         std::cout << "Runtime = " << elapsedSeconds.count() << " ms\n";
@@ -83,7 +83,7 @@ int main(int argc, const char * argv[]) {
                                                   backwardCapacities, backwardCosts);
 
         start = std::chrono::steady_clock::now();
-        forwardBackwardGraph.solve();
+        assert(forwardBackwardGraph.solve());
         end = std::chrono::steady_clock::now();
         elapsedSeconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         std::cout << "Runtime = " << elapsedSeconds.count() << " ms\n";
