@@ -54,6 +54,7 @@ int main(int argc, const char * argv[]) {
         std::cout << "Finish forward graph instance generation." << std::endl;
 
         ForwardGraph forwardGraph(n, demands, productionCapacities, productionCosts, forwardCapacities, forwardCosts);
+        ForwardGraph fasterForwardGraph = forwardGraph;
 
         auto start = std::chrono::steady_clock::now();
         assert(forwardGraph.solve());
@@ -66,6 +67,22 @@ int main(int argc, const char * argv[]) {
 
         assert(forwardGraph.constraintsSatisfied());
         assert(forwardGraph.isOptimal());
+
+        // MARK: - Forward graph faster version
+
+        start = std::chrono::steady_clock::now();
+        assert(fasterForwardGraph.fasterSolve());
+        end = std::chrono::steady_clock::now();
+        elapsedSeconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "Runtime = " << elapsedSeconds.count() << " ms\n";
+
+        double cost0_1 = fasterForwardGraph.cost();
+        std::cout << "The total cost of the faster version is " << fasterForwardGraph.cost() << std::endl;
+
+        assert(forwardGraph.constraintsSatisfied());
+        assert(forwardGraph.isOptimal());
+
+        assert(fabs(cost0 - cost0_1) < 1e-6);
 
         // MARK: - Forward-backward graph
 

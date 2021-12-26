@@ -8,6 +8,8 @@
 
 #include "LotSizingSolver.hpp"
 
+#include "dp_array.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -69,6 +71,7 @@ ForwardGraph::ForwardGraph(std::size_t n, const Demands& demands,
         totalProductionCapacity += edge.capacity;
         // Partial-sum satisfactory as well.
         assert(totalDemand <= totalProductionCapacity);
+        m_costBound += edge.cost;
     }
 
     // Inventory forward edges
@@ -79,10 +82,12 @@ ForwardGraph::ForwardGraph(std::size_t n, const Demands& demands,
         edge.flow = 0;
         edge.cost = forwardCosts[i];
         assert(edge.cost >= 0);
+        m_costBound += edge.cost;
     }
 
     m_productionResidualEdges = m_productionEdges;
     m_forwardResidualEdges = m_forwardEdges;
+    m_costBound *= 2;
 }
 
 double ForwardGraph::cost() const {
@@ -109,6 +114,47 @@ bool ForwardGraph::solve() {
                 return false;
             }
         }
+    }
+
+    return true;
+}
+
+bool ForwardGraph::fasterSolve() {
+    // Initiate the capacity dynamic path and the residual path cost dynamic path.
+    std::vector<double> capacities;
+    for (std::size_t i = 0; i < m_n - 1; ++i) {
+        capacities.push_back(static_cast<double>(m_forwardResidualEdges[i].capacity) + 0.5);
+    }
+    dp_array capacityDP(capacities);
+
+    std::vector<double> costs(m_n, 0);
+    for (std::size_t i = 0; i < m_n; ++i) {
+        if (m_productionResidualEdges[i].capacity > 0) {
+            costs[i] = m_productionResidualEdges[i].cost;
+        } else {
+            costs[i] = m_costBound;
+        }
+    }
+    dp_array costDP(costs);
+
+    dp_array flowDP(std::vector<double>(m_n - 1, 0));
+
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < m_n; ++i) {
+        fastElongateAndAdd(i, start, capacityDP, costDP);
+        uint32_t demand = m_demands[i];
+        while (demand > 0) {
+            if (!fastAugmentAndUpdate(i, start,
+                                      capacityDP, costDP, flowDP,
+                                      demand)) {
+                return false;
+            }
+        }
+    }
+    std::vector<double> flows;
+    assert(flowDP.vectorize(flows));
+    for (std::size_t i = 0; i < m_n - 1; ++i) {
+        m_forwardEdges[i].flow = static_cast<uint32_t>(flows[i]);
     }
 
     return true;
@@ -347,6 +393,78 @@ bool ForwardGraph::augmentAndUpdate(std::size_t node, std::list<ResidualPath>& r
         residualPaths.remove_if([&node, &lastZeroResCapNode](const ResidualPath& residualPath) {
             return residualPath.from != node && residualPath.from <= lastZeroResCapNode;
         });
+    }
+
+    return true;
+}
+
+void ForwardGraph::fastElongateAndAdd(std::size_t node, std::size_t& start,
+                                      dp_array& capacityDP, dp_array& costDP) {
+    if (node > 0) {
+        auto capacity = static_cast<uint32_t>(floor(capacityDP.edge_cost(static_cast<int>(node) - 1)));
+        const ResidualEdge& residualEdge = m_forwardResidualEdges[node - 1];
+        if (capacity > 0) {
+            costDP.update_constant(static_cast<int>(start), static_cast<int>(node), residualEdge.cost);
+        } else {
+            start = node;
+        }
+    }
+}
+
+bool ForwardGraph::fastAugmentAndUpdate(std::size_t node, std::size_t& start,
+                                        dp_array& capacityDP, dp_array& costDP, dp_array& flowDP,
+                                        uint32_t& demand) {
+    assert(demand > 0);
+
+    // Get the minimum cost residual path.
+    int from = 0;
+    auto minCost = costDP.min_cost_last(static_cast<int>(start), static_cast<int>(node) + 1, from);
+    assert(from >= 0);
+
+    if (std::isnan(minCost) || std::isinf(minCost)) {
+        return false;
+    }
+
+    int tmp;
+    uint32_t capacity = m_productionResidualEdges[from].capacity;
+    if (from < node) {
+        capacity = std::min(capacity,
+                            static_cast<uint32_t>(
+                                floor(capacityDP.min_cost_last(from, static_cast<int>(node), tmp))
+                            ));
+    }
+    assert(capacity > 0);
+
+    auto delta = std::min(demand, capacity);
+    assert(delta > 0);
+
+    // Update demand
+    demand -= delta;
+
+    // Update flows and residual edges.
+    bool productionSaturated = false;
+    assert(m_productionResidualEdges[from].capacity >= delta);
+    m_productionResidualEdges[from].capacity -= delta;
+    m_productionEdges[from].flow += delta;
+    if (m_productionResidualEdges[from].capacity == 0) {
+        productionSaturated = true;
+    }
+
+    capacityDP.update_constant(from, static_cast<int>(node), -delta);
+    flowDP.update_constant(from, static_cast<int>(node), delta);
+
+    if (productionSaturated) {
+        // Essentially remove this residual path.
+        costDP.update_constant(from, from + 1, m_costBound);
+    }
+
+    if (from == node) {
+        return true;
+    }
+
+    capacity = static_cast<uint32_t>(floor(capacityDP.min_cost_last(from, static_cast<int>(node), tmp)));
+    if (capacity == 0) {
+        start = tmp + 1;
     }
 
     return true;

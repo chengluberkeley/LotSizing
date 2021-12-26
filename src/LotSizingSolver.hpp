@@ -11,6 +11,8 @@
 
 // #define DEBUG_LOTSIZING
 
+#include "dp_array.h"
+
 #include <list>
 #include <vector>
 
@@ -66,6 +68,10 @@ public:
     /// \return true if the problem is feasible.
     bool solve();
 
+    /// Solve the optimal solution to the problem instance with faster algorithm.
+    /// \return true if the problem is feasible.
+    bool fasterSolve();
+
     /// Check whether the current solution satisfies all constraints.
     bool constraintsSatisfied() const;
 
@@ -77,6 +83,7 @@ protected:
     Demands m_demands;
     ProductionEdges m_productionEdges;
     InventoryEdges m_forwardEdges;
+    double m_costBound = 0;
 
     // Production and forward residual edges
     ResidualEdges m_productionResidualEdges;
@@ -96,6 +103,16 @@ private:
 
     // Return true if the augmentation is successful.
     bool augmentAndUpdate(std::size_t node, std::list<ResidualPath>& residualPaths, uint32_t& demand);
+
+    // MARK: - Dynamic path version
+
+    void fastElongateAndAdd(std::size_t node, std::size_t& start,
+                            dp_array& capacityDP, dp_array& costDP);
+
+    // Return true if the augmentation is successful.
+    bool fastAugmentAndUpdate(std::size_t node, std::size_t& start,
+                              dp_array& capacityDP, dp_array& costDP, dp_array& flowDP,
+                              uint32_t& demand);
 };
 
 class ForwardBackwardGraph: ForwardGraph {

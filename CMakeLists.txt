@@ -17,4 +17,11 @@ file(GLOB srcs
   ${PROJECT_SOURCE_DIR}/src/*.cpp
 )
 
+add_library(dynamic_path STATIC IMPORTED)
+set_target_properties(dynamic_path PROPERTIES
+  IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/DynamicPath/lib/libdynamic_path.a"
+  INTERFACE_INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}/DynamicPath/src"
+)
+
 add_executable(test_main ${PROJECT_SOURCE_DIR}/main.cpp ${srcs})
+target_link_libraries(test_main PRIVATE dynamic_path)
