@@ -83,6 +83,7 @@ protected:
     Demands m_demands;
     ProductionEdges m_productionEdges;
     InventoryEdges m_forwardEdges;
+    double m_costSum = 0;
     double m_costBound = 0;
 
     // Production and forward residual edges
@@ -91,6 +92,8 @@ protected:
 
     // Shared functions
     void orderedInsert(const ResidualPath& residualPath, std::list<ResidualPath>& residualPaths);
+
+    bool isInfinite(double value);
 
 #ifdef DEBUG_LOTSIZING
     void print() const;
@@ -107,11 +110,11 @@ private:
     // MARK: - Dynamic path version
 
     void fastElongateAndAdd(std::size_t node, std::size_t& start,
-                            dp_array& capacityDP, dp_array& costDP);
+                            dp_array<uint32_t>& capacityDP, dp_array<double>& costDP);
 
     // Return true if the augmentation is successful.
     bool fastAugmentAndUpdate(std::size_t node, std::size_t& start,
-                              dp_array& capacityDP, dp_array& costDP, dp_array& flowDP,
+                              dp_array<uint32_t>& capacityDP, dp_array<double>& costDP, dp_array<uint32_t>& flowDP,
                               uint32_t& demand);
 };
 

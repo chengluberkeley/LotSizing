@@ -79,8 +79,8 @@ int main(int argc, const char * argv[]) {
         double cost0_1 = fasterForwardGraph.cost();
         std::cout << "The total cost of the faster version is " << fasterForwardGraph.cost() << std::endl;
 
-        assert(forwardGraph.constraintsSatisfied());
-        assert(forwardGraph.isOptimal());
+        assert(fasterForwardGraph.constraintsSatisfied());
+        assert(fasterForwardGraph.isOptimal());
 
         assert(fabs(cost0 - cost0_1) < 1e-6);
 
