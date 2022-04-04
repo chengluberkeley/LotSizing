@@ -4,7 +4,7 @@ project(LotSizing)
 if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug)
 endif()
-set(CMAKE_CXX_FLAGS "-std=c++11 -O3")
+set(CMAKE_CXX_FLAGS "-std=c++17 -O3")
 
 include_directories(
   ${PROJECT_SOURCE_DIR}
