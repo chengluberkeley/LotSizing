@@ -98,6 +98,7 @@ int main(int argc, const char * argv[]) {
         ForwardBackwardGraph forwardBackwardGraph(n, demands, productionCapacities, productionCosts,
                                                   forwardCapacities, forwardCosts,
                                                   backwardCapacities, backwardCosts);
+        ForwardBackwardGraph fasterForwardBackwardGraph = forwardBackwardGraph;
 
         start = std::chrono::steady_clock::now();
         assert(forwardBackwardGraph.solve());
@@ -108,8 +109,20 @@ int main(int argc, const char * argv[]) {
         double cost1 = forwardBackwardGraph.cost();
         std::cout << "The total cost is " << cost1 << std::endl;
 
+        start = std::chrono::steady_clock::now();
+        assert(fasterForwardBackwardGraph.fasterSolve());
+        end = std::chrono::steady_clock::now();
+        elapsedSeconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "Faster runtime = " << elapsedSeconds.count() << " ms\n";
+
+        double cost1_1 = fasterForwardBackwardGraph.cost();
+        std::cout << "The total cost of the faster version is " << cost1_1 << std::endl;
+
         assert(forwardBackwardGraph.constraintsSatisfied());
         assert(forwardBackwardGraph.isOptimal());
+        assert(fasterForwardBackwardGraph.constraintsSatisfied());
+        assert(fasterForwardBackwardGraph.isOptimal());
+        assert(fabs(cost1 - cost1_1) < 1e-6);
 
         assert(cost1 <= cost0);
     }

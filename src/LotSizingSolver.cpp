@@ -198,7 +198,7 @@ bool ForwardGraph::isOptimal() const {
 
     // Bellman-Ford shortest path algorithm.
 
-    for (std::size_t i = 0; i < m_n - 1; ++i) {
+    for (std::size_t i = 0; i < m_n; ++i) {
         // Production arcs
         for (std::size_t j = 0; j < m_n; ++j) {
             const auto& edge = m_productionEdges[j];
@@ -430,14 +430,14 @@ bool ForwardGraph::fastAugmentAndUpdate(std::size_t node, std::size_t& start,
     auto minCost = costDP.min_cost_last(startInt, nodeInt + 1, from);
     assert(from >= 0);
 
-    if (std::isnan(minCost) || isInfinite(minCost)) {
+    if (!minCost.has_value() || isInfinite(*minCost)) {
         return false;
     }
 
     int tmp;
     uint32_t capacity = m_productionResidualEdges[from].capacity;
     if (from < node) {
-        capacity = std::min(capacity, capacityDP.min_cost_last(from, nodeInt, tmp));
+        capacity = std::min(capacity, *(capacityDP.min_cost_last(from, nodeInt, tmp)));
     }
     assert(capacity > 0);
 
@@ -468,7 +468,7 @@ bool ForwardGraph::fastAugmentAndUpdate(std::size_t node, std::size_t& start,
         return true;
     }
 
-    capacity = capacityDP.min_cost_last(from, nodeInt, tmp);
+    capacity = *capacityDP.min_cost_last(from, nodeInt, tmp);
     if (capacity == 0) {
         start = tmp + 1;
     }
@@ -497,6 +497,7 @@ ForwardBackwardGraph::ForwardBackwardGraph(std::size_t n, const Demands& demands
         edge.capacity = backwardCapacities[i];
         edge.flow = 0;
         edge.cost = backwardCosts[i];
+        m_costSum += edge.cost;
         assert(edge.cost >= 0);
         if (i == 0) {
             m_backwardResidualEdgeCostSums[i] = edge.cost;
@@ -506,6 +507,7 @@ ForwardBackwardGraph::ForwardBackwardGraph(std::size_t n, const Demands& demands
     }
 
     m_backwardResidualEdges = m_backwardEdges;
+    m_costBound = m_costSum * 10;
 
 #ifdef DEBUG_LOTSIZING
     // Print demands
@@ -614,6 +616,84 @@ bool ForwardBackwardGraph::solve() {
     return true;
 }
 
+bool ForwardBackwardGraph::fasterSolve() {
+    // Initiate the dynamic paths.
+    std::vector<uint32_t> forwardResCapacities(m_n - 1,0);
+    dp_array forwardResCapacityDP(forwardResCapacities);
+
+    std::vector<uint32_t> backwardResCapacities;
+    for (std::size_t i = 0; i < m_n - 1; ++i) {
+        backwardResCapacities.push_back(m_backwardResidualEdges[i].capacity);
+    }
+    dp_array backwardResCapacityDP(backwardResCapacities);
+
+    std::vector<double> costs(m_n, 0);
+    // Node 0 -- Forward
+    if (m_productionResidualEdges[0].capacity > 0) {
+        costs[0] = m_productionResidualEdges[0].cost;
+    } else {
+        costs[0] = m_costBound;
+    }
+
+    // Remaining nodes -- Backward
+    for (std::size_t i = 1; i < m_n; ++i) {
+        if (m_productionResidualEdges[i].capacity > 0) {
+            costs[i] = m_productionResidualEdges[i].cost + m_backwardResidualEdgeCostSums[i - 1];
+        } else {
+            costs[i] = m_costBound;
+        }
+    }
+    dp_array costDP(costs);
+
+    dp_array forwardResFlowDP(std::vector<uint32_t>(m_n - 1, 0));
+    dp_array backwardResFlowDP(std::vector<uint32_t>(m_n - 1, 0));
+
+    // Find backward residual segments.
+    std::list<SegmentRange> backwardResidualSegments;
+    std::size_t start = 0;
+    std::size_t end = start;
+    for (std::size_t i = 1; i < m_n; ++i) {
+        if (m_backwardResidualEdges[i - 1].capacity == 0) {
+            if (start < end) {
+                backwardResidualSegments.push_back(SegmentRange(start, end));
+            }
+            start = i;
+            end = start;
+        } else {
+            end = i;
+        }
+    }
+
+    // Last segment
+    assert(end == m_n - 1);
+    if (start < end) {
+        backwardResidualSegments.push_back(SegmentRange(start, end));
+    }
+
+    start = 0;
+    for (std::size_t i = 0; i < m_n; ++i) {
+        uint32_t demand = m_demands[i];
+        while (demand > 0) {
+            if (!fastAugmentAndUpdate(i, start, backwardResidualSegments,
+                                      forwardResCapacityDP, backwardResCapacityDP,
+                                      costDP, forwardResFlowDP, backwardResFlowDP,
+                                      demand)) {
+                return false;
+            }
+        }
+
+        if (i < m_n - 1) {
+            fastElongateAndUpdate(i + 1, forwardResFlowDP, backwardResFlowDP,
+                                  start, backwardResidualSegments,
+                                  forwardResCapacityDP, backwardResCapacityDP, costDP);
+        }
+    }
+
+    mergeFlowSolutions(forwardResFlowDP, backwardResFlowDP);
+
+    return true;
+}
+
 bool ForwardBackwardGraph::constraintsSatisfied() const {
     // Capacity constraints
     for (const auto& edge: m_productionEdges) {
@@ -673,40 +753,7 @@ static double truncatedValue(double value) {
 }
 
 bool ForwardBackwardGraph::isOptimal() const {
-    std::vector<double> d(m_n + 1, std::numeric_limits<double>::max());
-    d[m_n] = 0;
-
-    for (std::size_t j = 0; j < m_n - 1; ++j) {
-        const auto& fEdge = m_forwardResidualEdges[j];
-        if (fEdge.capacity > 0) {
-            assert(!(m_forwardEdges[j].flow > 0 && m_backwardEdges[j].flow > 0));
-            if (m_forwardEdges[j].flow == 0 && m_backwardEdges[j].flow == 0) {
-                assert(fEdge.capacity == m_forwardEdges[j].capacity);
-                assert(fEdge.cost == m_forwardEdges[j].cost);
-            } else if (m_forwardEdges[j].flow > 0) {
-                assert(fEdge.capacity == m_forwardEdges[j].capacity - m_forwardEdges[j].flow);
-                assert(fEdge.cost == m_forwardEdges[j].cost);
-            } else if (m_backwardEdges[j].flow > 0) {
-                assert(fEdge.capacity == m_backwardEdges[j].flow);
-                assert(fEdge.cost == -m_backwardEdges[j].cost);
-            }
-        }
-
-        const auto& bEdge = m_backwardResidualEdges[j];
-        if (bEdge.capacity > 0) {
-            assert(!(m_forwardEdges[j].flow > 0 && m_backwardEdges[j].flow > 0));
-            if (m_forwardEdges[j].flow == 0 && m_backwardEdges[j].flow == 0) {
-                assert(bEdge.capacity == m_backwardEdges[j].capacity);
-                assert(bEdge.cost == m_backwardEdges[j].cost);
-            } else if (m_backwardEdges[j].flow > 0) {
-                assert(bEdge.capacity == m_backwardEdges[j].capacity - m_backwardEdges[j].flow);
-                assert(bEdge.cost == m_backwardEdges[j].cost);
-            } else if (m_forwardEdges[j].flow > 0) {
-                assert(bEdge.capacity == m_forwardEdges[j].flow);
-                assert(bEdge.cost == -m_forwardEdges[j].cost);
-            }
-        }
-    }
+    std::vector<double> d(m_n, std::numeric_limits<double>::max());
 
     // Bellman-Ford shortest path algorithm.
 
@@ -715,7 +762,7 @@ bool ForwardBackwardGraph::isOptimal() const {
         for (std::size_t j = 0; j < m_n; ++j) {
             const auto& edge = m_productionEdges[j];
             if (edge.flow < edge.capacity) {
-                double value = truncatedValue(d[m_n] + edge.cost);
+                double value = truncatedValue(edge.cost);
                 if (value < d[j]) {
                     d[j] = value;
                 }
@@ -723,26 +770,39 @@ bool ForwardBackwardGraph::isOptimal() const {
 
             if (edge.flow > 0) {
                 double value = truncatedValue(d[j] - edge.cost);
-                if (value < d[m_n]) {
-                    d[m_n] = value;
+                if (value < 0) {
+                    return false;
                 }
             }
         }
 
         for (std::size_t j = 0; j < m_n - 1; ++j) {
-            const auto& fEdge = m_forwardResidualEdges[j];
-            if (fEdge.capacity > 0) {
+            const auto& fEdge = m_forwardEdges[j];
+            if (fEdge.flow < fEdge.capacity) {
                 double value = truncatedValue(d[j] + fEdge.cost);
                 if (value < d[j + 1]) {
                     d[j + 1] = value;
                 }
             }
+            if (fEdge.flow > 0) {
+                double value = truncatedValue(d[j + 1] - fEdge.cost);
+                if (value < d[j]) {
+                    d[j] = value;
+                }
+            }
 
-            const auto& bEdge = m_backwardResidualEdges[j];
-            if (bEdge.capacity > 0) {
+            const auto& bEdge = m_backwardEdges[j];
+            if (bEdge.flow < bEdge.capacity) {
                 double value = truncatedValue(d[j + 1] + bEdge.cost);
                 if (value < d[j]) {
                     d[j] = value;
+                }
+            }
+
+            if (bEdge.flow > 0) {
+                double value = d[j] - bEdge.cost;
+                if (value < d[j + 1]) {
+                    d[j + 1] = value;
                 }
             }
         }
@@ -752,29 +812,41 @@ bool ForwardBackwardGraph::isOptimal() const {
     for (std::size_t i = 0; i < m_n; ++i) {
         const auto& edge = m_productionEdges[i];
         if (edge.flow < edge.capacity) {
-            if (truncatedValue(d[m_n] + edge.cost) + kEps < d[i]) {
+            if (truncatedValue(edge.cost) + kEps < d[i]) {
                 return false;
             }
         }
 
         if (edge.flow > 0) {
-            if (truncatedValue(d[i] - edge.cost) + kEps < d[m_n]) {
+            if (truncatedValue(d[i] - edge.cost) + kEps < 0) {
                 return false;
             }
         }
     }
 
     for (std::size_t i = 0; i < m_n - 1; ++i) {
-        const auto& fEdge = m_forwardResidualEdges[i];
-        if (fEdge.capacity > 0) {
+        const auto& fEdge = m_forwardEdges[i];
+        if (fEdge.flow < fEdge.capacity) {
             if (truncatedValue(d[i] + fEdge.cost) + kEps < d[i + 1]) {
                 return false;
             }
         }
 
-        const auto& bEdge = m_backwardResidualEdges[i];
-        if (bEdge.capacity > 0) {
+        if (fEdge.flow > 0) {
+            if (truncatedValue(d[i + 1] - fEdge.cost) + kEps < d[i]) {
+                return false;
+            }
+        }
+
+        const auto& bEdge = m_backwardEdges[i];
+        if (bEdge.flow < bEdge.capacity) {
             if (truncatedValue(d[i + 1] + bEdge.cost) + kEps < d[i]) {
+                return false;
+            }
+        }
+
+        if (bEdge.flow > 0) {
+            if (truncatedValue(d[i] - bEdge.cost) + kEps < d[i + 1]) {
                 return false;
             }
         }
@@ -1074,6 +1146,239 @@ bool ForwardBackwardGraph::augmentAndUpdate(std::size_t node, std::list<Residual
     }
 
     return true;
+}
+
+void ForwardBackwardGraph::fastElongateAndUpdate(std::size_t node, const dp_array<uint32_t>& forwardResFlowDP, const dp_array<uint32_t>& backwardResFlowDP,
+                                                 std::size_t& start, std::list<SegmentRange>& backwardResidualSegments,
+                                                 dp_array<uint32_t>& forwardResCapacityDP, dp_array<uint32_t>& backwardResCapacityDP,
+                                                 dp_array<double>& costDP) {
+    assert(node > 0);
+    auto nodeInt = static_cast<int>(node);
+    auto startInt = static_cast<int>(start);
+
+    // MARK: - Forward residual paths.
+
+    // Note: Check backward residual flow first.
+
+    auto backwardResFlow = *backwardResFlowDP.edge_cost(nodeInt - 1);
+
+    if (backwardResFlow > 0) {
+        // Use backward flow as forward residual capacity.
+        auto capacity = backwardResFlow;
+        double cost = -m_backwardResidualEdges[nodeInt - 1].cost;
+        forwardResCapacityDP.update_constant(nodeInt - 1, nodeInt, capacity);
+        costDP.update_constant(startInt, nodeInt, cost);
+    } else {
+        // Use original forward residual capacity.
+        auto capacity = m_forwardResidualEdges[node - 1].capacity;
+        auto cost = m_forwardResidualEdges[node - 1].cost;
+        if (capacity > 0) {
+            forwardResCapacityDP.update_constant(nodeInt - 1, nodeInt, capacity);
+            costDP.update_constant(startInt, nodeInt, cost);
+        } else {
+            start = node;
+        }
+    }
+
+    costDP.update_constant(nodeInt, nodeInt + 1, -m_backwardResidualEdgeCostSums[node - 1]);
+
+    // MARK: - Backward residual paths.
+
+    if (backwardResidualSegments.empty()) {
+        return;
+    }
+
+    auto& backwardResidualSegment = backwardResidualSegments.front();
+    if (backwardResidualSegment.first > node) {
+        return;
+    }
+
+    assert(backwardResidualSegment.first >= node - 1
+           && backwardResidualSegment.first <= node);
+    backwardResidualSegment.first = node;
+    if (backwardResidualSegment.first >= backwardResidualSegment.second) {
+        backwardResidualSegments.pop_front();
+        return;
+    }
+}
+
+bool ForwardBackwardGraph::fastAugmentAndUpdate(std::size_t node, std::size_t& start, std::list<SegmentRange>& backwardResidualSegments,
+                                                dp_array<uint32_t>& forwardResCapacityDP, dp_array<uint32_t>& backwardResCapacityDP,
+                                                dp_array<double>& costDP,
+                                                dp_array<uint32_t>& forwardResFlowDP, dp_array<uint32_t>& backwardResFlowDP,
+                                                uint32_t& demand) {
+    assert(demand > 0);
+
+    auto nodeInt = static_cast<int>(node);
+    auto startInt = static_cast<int>(start);
+
+    // Get the minimum cost out of forward and backward residual paths.
+    int from = 0;
+    auto minCost = *costDP.min_cost_last(startInt, nodeInt + 1, from);
+    assert(from >= 0);
+    bool forwardFeasible = !isInfinite(minCost);
+
+    // No feasible forward or backward residual paths.
+    if (!forwardFeasible && backwardResidualSegments.empty()) {
+        return false;
+    }
+
+    if (!backwardResidualSegments.empty()) {
+        const auto& backwardResidualSegment = backwardResidualSegments.front();
+        const auto firstNode = backwardResidualSegment.first;
+        const auto secondNode = backwardResidualSegment.second;
+        assert(node <= firstNode);
+        if (node == firstNode) {
+            int bFrom = 0;
+            auto bMinCost = *costDP.min_cost_first(nodeInt + 1, static_cast<int>(secondNode + 1), bFrom);
+            if (firstNode > 0) {
+                bMinCost -= m_backwardResidualEdgeCostSums[firstNode - 1];
+            }
+
+            if (isInfinite(bMinCost) && !forwardFeasible) {
+                return false;
+            } else if (bMinCost < minCost) {
+                from = bFrom;
+            }
+        }
+    }
+
+    // Find residual capacity
+    uint32_t residualCapacity = m_productionResidualEdges[from].capacity;
+
+    int tmp;
+    if (nodeInt == from) {
+        // Production arc only, simple.
+        auto delta = std::min(demand, residualCapacity);
+        assert(delta > 0);
+
+        // Update demand
+        demand -= delta;
+
+        assert(m_productionResidualEdges[from].capacity >= delta);
+        m_productionResidualEdges[from].capacity -= delta;
+        m_productionEdges[from].flow += delta;
+        if (m_productionResidualEdges[from].capacity == 0) {
+            costDP.update_constant(from, from + 1, m_costBound);
+        }
+    } else if (nodeInt > from) {
+        // Forward residual path
+        auto minForwardResCapacity = forwardResCapacityDP.min_cost_last(from, nodeInt, tmp);
+        assert(minForwardResCapacity.has_value());
+        residualCapacity = std::min(residualCapacity, *minForwardResCapacity);
+
+        assert(residualCapacity > 0);
+
+        auto delta = std::min(demand, residualCapacity);
+        assert(delta > 0);
+
+        // Update demand
+        demand -= delta;
+
+        // Update flows and residual edges
+        assert(m_productionResidualEdges[from].capacity >= delta);
+        m_productionResidualEdges[from].capacity -= delta;
+        m_productionEdges[from].flow += delta;
+        if (m_productionResidualEdges[from].capacity == 0) {
+            costDP.update_constant(from, from + 1, m_costBound);
+        }
+
+        forwardResCapacityDP.update_constant(from, nodeInt, -delta);
+        forwardResFlowDP.update_constant(from, nodeInt, delta);
+
+        // Check for 0-capacity forward residual arc
+        minForwardResCapacity = forwardResCapacityDP.min_cost_last(from, nodeInt, tmp);
+        while (minForwardResCapacity.has_value() && (*minForwardResCapacity) == 0) {
+            auto forwardResFlow = *forwardResFlowDP.edge_cost(tmp);
+            auto backwardResFlow = *backwardResFlowDP.edge_cost(tmp);
+            if (backwardResFlow >= forwardResFlow) {
+                assert(forwardResFlow == backwardResFlow);
+                if (m_forwardResidualEdges[tmp].capacity > 0) {
+                    // Change backward to forward arc.
+                    auto costDelta = m_forwardResidualEdges[tmp].cost + m_backwardResidualEdges[tmp].cost;
+                    costDP.update_constant(startInt, tmp + 1, costDelta);
+                    forwardResCapacityDP.update_constant(tmp, tmp + 1, m_forwardResidualEdges[tmp].capacity);
+                } else {
+                    start = static_cast<std::size_t>(tmp + 1);
+                    break;
+                }
+            } else {
+                assert(forwardResFlow - backwardResFlow == m_forwardEdges[tmp].capacity);
+                start = static_cast<std::size_t>(tmp + 1);
+                break;
+            }
+            minForwardResCapacity = forwardResCapacityDP.min_cost_last(from, tmp, tmp);
+        }
+    } else {
+        // Backward residual path
+        assert(!backwardResidualSegments.empty());
+
+        auto minBackwardResCapacity = backwardResCapacityDP.min_cost_first(nodeInt, from, tmp);
+        assert(minBackwardResCapacity.has_value());
+        residualCapacity = std::min(residualCapacity, *minBackwardResCapacity);
+
+        assert(residualCapacity > 0);
+
+        auto delta = std::min(demand, residualCapacity);
+        assert(delta > 0);
+
+        // Update demand
+        demand -= delta;
+
+        // Update flows and residual edges
+        assert(m_productionResidualEdges[from].capacity >= delta);
+        m_productionResidualEdges[from].capacity -= delta;
+        m_productionEdges[from].flow += delta;
+        if (m_productionResidualEdges[from].capacity == 0) {
+            costDP.update_constant(from, from + 1, m_costBound);
+        }
+
+        backwardResCapacityDP.update_constant(nodeInt, from, -delta);
+        backwardResFlowDP.update_constant(nodeInt, from, delta);
+
+        // Check for 0-capacity backward residual arc
+        std::list<SegmentRange> splitSegments;
+        bool splitHappened = false;
+        minBackwardResCapacity = backwardResCapacityDP.min_cost_first(nodeInt, from, tmp);
+        int segmentStart = nodeInt;
+        while (minBackwardResCapacity.has_value() && (*minBackwardResCapacity) == 0) {
+            splitHappened = true;
+            if (segmentStart < tmp) {
+                splitSegments.push_back(SegmentRange(segmentStart, tmp));
+            }
+            segmentStart = tmp + 1;
+            minBackwardResCapacity = backwardResCapacityDP.min_cost_first(tmp + 1, from, tmp);
+        }
+
+        if (splitHappened) {
+            const auto& oldSegment = backwardResidualSegments.front();
+            if (segmentStart < oldSegment.second) {
+                splitSegments.push_back(SegmentRange(segmentStart, oldSegment.second));
+            }
+
+            // Update segments
+            backwardResidualSegments.pop_front();
+            backwardResidualSegments.insert(backwardResidualSegments.begin(),
+                                            splitSegments.begin(),
+                                            splitSegments.end());
+        }
+    }
+
+    return true;
+}
+
+void ForwardBackwardGraph::mergeFlowSolutions(const dp_array<uint32_t>& forwardResFlowDP, const dp_array<uint32_t>& backwardResFlowDP) {
+    std::vector<uint32_t> forwardResFlows;
+    std::vector<uint32_t> backwardResFlows;
+    assert(forwardResFlowDP.vectorize(forwardResFlows));
+    assert(backwardResFlowDP.vectorize(backwardResFlows));
+    for (std::size_t i = 0; i < m_n - 1; ++i) {
+        if (forwardResFlows[i] > backwardResFlows[i]) {
+            m_forwardEdges[i].flow = forwardResFlows[i] - backwardResFlows[i];
+        } else if (forwardResFlows[i] < backwardResFlows[i]) {
+            m_backwardEdges[i].flow = backwardResFlows[i] - forwardResFlows[i];
+        }
+    }
 }
 
 #ifdef DEBUG_LOTSIZING

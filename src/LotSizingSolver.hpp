@@ -135,6 +135,10 @@ public:
     /// \return true if the problem is feasible.
     bool solve();
 
+    /// Solve the optimal solution to the problem instance with faster algorithm.
+    /// \return true if the problem is feasible.
+    bool fasterSolve();
+
     /// Check whether the current solution satisfies all constraints.
     bool constraintsSatisfied() const;
 
@@ -157,6 +161,23 @@ private:
     bool augmentAndUpdate(std::size_t node, std::list<ResidualPath>& forwardResidualPaths,
                           std::list<BackwardResidualPathSegment>& backwardResidualPathSegments,
                           uint32_t& demand);
+
+    // MARK: - Dynamic path version
+
+    void fastElongateAndUpdate(std::size_t node, const dp_array<uint32_t>& forwardResFlowDP, const dp_array<uint32_t>& backwardResFlowDP,
+                               std::size_t& start, std::list<SegmentRange>& backwardResidualSegments,
+                               dp_array<uint32_t>& forwardResCapacityDP, dp_array<uint32_t>& backwardResCapacityDP,
+                               dp_array<double>& costDP);
+
+    // Return true if the augmentation is successful.
+    bool fastAugmentAndUpdate(std::size_t node, std::size_t& start, std::list<SegmentRange>& backwardResidualSegments,
+                              dp_array<uint32_t>& forwardResCapacityDP, dp_array<uint32_t>& backwardResCapacityDP,
+                              dp_array<double>& costDP,
+                              dp_array<uint32_t>& forwardResFlowDP, dp_array<uint32_t>& backwardResFlowDP,
+                              uint32_t& demand);
+
+    // Convert residual flows in DPs to final solution.
+    void mergeFlowSolutions(const dp_array<uint32_t>& forwardResFlowDP, const dp_array<uint32_t>& backwardResFlowDP);
 
 #ifdef DEBUG_LOTSIZING
     void print() const;
