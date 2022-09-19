@@ -54,7 +54,7 @@ int main(int argc, const char * argv[]) {
         std::cout << "Finish forward graph instance generation." << std::endl;
 
         ForwardGraph forwardGraph(n, demands, productionCapacities, productionCosts, forwardCapacities, forwardCosts);
-        ForwardGraph fasterForwardGraph = forwardGraph;
+        ForwardGraph fasterForwardGraph(n, demands, productionCapacities, productionCosts, forwardCapacities, forwardCosts);
 
         auto start = std::chrono::steady_clock::now();
         assert(forwardGraph.solve());
@@ -98,7 +98,9 @@ int main(int argc, const char * argv[]) {
         ForwardBackwardGraph forwardBackwardGraph(n, demands, productionCapacities, productionCosts,
                                                   forwardCapacities, forwardCosts,
                                                   backwardCapacities, backwardCosts);
-        ForwardBackwardGraph fasterForwardBackwardGraph = forwardBackwardGraph;
+        ForwardBackwardGraph fasterForwardBackwardGraph(n, demands, productionCapacities, productionCosts,
+                                                        forwardCapacities, forwardCosts,
+                                                        backwardCapacities, backwardCosts);
 
         start = std::chrono::steady_clock::now();
         assert(forwardBackwardGraph.solve());

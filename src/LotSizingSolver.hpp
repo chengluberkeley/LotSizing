@@ -14,18 +14,48 @@
 #include "dp_array.h"
 
 #include <list>
+#include <memory>
 #include <vector>
+
+/// Auxiliary function for testing.
+std::vector<double> generateConvexCosts(int bkpNum, double leftBkp, double leftSlope);
 
 /// Default: Linear cost edge
 struct Edge {
+    Edge(double costCoeff) {
+        _costCoeff = costCoeff;
+        capacity = 0;
+        flow = 0;
+    }
+    virtual ~Edge() {}
     uint32_t capacity;
-    uint32_t flow;
-    double cost;
+    double flow;
+    virtual double cost(double flow = 0, double delta = 1.0) {
+        return _costCoeff;
+    }
+protected:
+    Edge() {
+        capacity = 0;
+        flow = 0;
+    }
+private:
+    double _costCoeff;
 };
 
-// TODO: Convex cost edge
+/// Convex cost edge
+struct ConvexEdge: public Edge {
+    ConvexEdge(const std::vector<double>& costs);
+    virtual ~ConvexEdge() {}
+    virtual double cost(double flow = 0, double delta = 1.0) override;
+private:
+    double _cost(double flow);
+    // slope, bkp, slope, ..., slope, bkp, slope.
+    std::vector<double> _bkps;
+    std::vector<double> _slopes;
+    std::vector<double> _bkpValues;
+};
 
-using ProductionEdges = std::vector<Edge>;
+using ProductionEdges = std::vector<std::shared_ptr<Edge>>;
 
 using InventoryEdges = ProductionEdges;
 
@@ -35,7 +65,7 @@ using Demands = std::vector<uint32_t>;
 
 using ResidualEdge = Edge;
 
-using ResidualEdges = std::vector<ResidualEdge>;
+using ResidualEdges = std::vector<std::shared_ptr<ResidualEdge>>;
 
 /// Data for a residual path used in the O(n^2) algorithm.
 struct ResidualPath {
@@ -114,7 +144,7 @@ private:
 
     // Return true if the augmentation is successful.
     bool fastAugmentAndUpdate(std::size_t node, std::size_t& start,
-                              dp_array<uint32_t>& capacityDP, dp_array<double>& costDP, dp_array<uint32_t>& flowDP,
+                              dp_array<uint32_t>& capacityDP, dp_array<double>& costDP, dp_array<double>& flowDP,
                               uint32_t& demand);
 };
 
@@ -164,7 +194,7 @@ private:
 
     // MARK: - Dynamic path version
 
-    void fastElongateAndUpdate(std::size_t node, const dp_array<uint32_t>& forwardResFlowDP, const dp_array<uint32_t>& backwardResFlowDP,
+    void fastElongateAndUpdate(std::size_t node, const dp_array<double>& forwardResFlowDP, const dp_array<double>& backwardResFlowDP,
                                std::size_t& start, std::list<SegmentRange>& backwardResidualSegments,
                                dp_array<uint32_t>& forwardResCapacityDP, dp_array<uint32_t>& backwardResCapacityDP,
                                dp_array<double>& costDP);
@@ -173,11 +203,11 @@ private:
     bool fastAugmentAndUpdate(std::size_t node, std::size_t& start, std::list<SegmentRange>& backwardResidualSegments,
                               dp_array<uint32_t>& forwardResCapacityDP, dp_array<uint32_t>& backwardResCapacityDP,
                               dp_array<double>& costDP,
-                              dp_array<uint32_t>& forwardResFlowDP, dp_array<uint32_t>& backwardResFlowDP,
+                              dp_array<double>& forwardResFlowDP, dp_array<double>& backwardResFlowDP,
                               uint32_t& demand);
 
     // Convert residual flows in DPs to final solution.
-    void mergeFlowSolutions(const dp_array<uint32_t>& forwardResFlowDP, const dp_array<uint32_t>& backwardResFlowDP);
+    void mergeFlowSolutions(const dp_array<double>& forwardResFlowDP, const dp_array<double>& backwardResFlowDP);
 
 #ifdef DEBUG_LOTSIZING
     void print() const;
